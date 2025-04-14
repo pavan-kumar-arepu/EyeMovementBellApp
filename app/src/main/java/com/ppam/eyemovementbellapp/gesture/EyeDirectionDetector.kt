@@ -2,7 +2,6 @@ package com.ppam.eyemovementbellapp.gesture
 
 
 import com.google.mediapipe.tasks.components.containers.NormalizedLandmark
-//import com.ppam.eyemovementbellapp.gesture.EyeDirection
 
 object EyeDirectionDetector {
 

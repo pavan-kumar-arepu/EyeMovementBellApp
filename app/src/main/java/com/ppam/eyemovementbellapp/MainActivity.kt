@@ -40,6 +40,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private lateinit var faceLandmarkerHelper: MediapipeLandmarkerHelper
+    private lateinit var eyeGestureAnalyzer: EyeGestureAnalyzer
+
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -52,10 +54,16 @@ class MainActivity : AppCompatActivity() {
         }
         setContentView(previewView)
 
-        checkPermissionsAndStartCamera()
+        eyeGestureAnalyzer = EyeGestureAnalyzer(this)
 
-        // Initialize FaceLandmarkerHelper
-        faceLandmarkerHelper = MediapipeLandmarkerHelper(this)
+        // ✅ Correct initialization with result listener
+        faceLandmarkerHelper = MediapipeLandmarkerHelper(this) { result ->
+            result?.let {
+                eyeGestureAnalyzer.analyze(it)
+            }
+        }
+
+        checkPermissionsAndStartCamera()
     }
 
     private fun checkPermissionsAndStartCamera() {
@@ -85,18 +93,15 @@ class MainActivity : AppCompatActivity() {
 
             val cameraSelector = CameraSelector.DEFAULT_FRONT_CAMERA
 
-            // Set up your analyzer here
-            val analyzer = EyeGestureAnalyzer(this)
-
             val imageAnalysis = ImageAnalysis.Builder()
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .build()
                 .also {
-                    it.setAnalyzer(Executors.newSingleThreadExecutor()) { image ->
-                        // Convert the CameraX ImageProxy to a format that MediaPipe can handle
-//                        val mediaPipeImage = convertToMediaPipeImage(image)
-                        analyzer.analyze(image)
-                        image.close()  // Don't forget to close the ImageProxy!
+                    it.setAnalyzer(Executors.newSingleThreadExecutor()) { imageProxy ->
+                        val result = faceLandmarkerHelper.detectFaceLandmarks(imageProxy)
+                        result?.let {
+                            eyeGestureAnalyzer.analyze(it)
+                        }
                     }
                 }
 
@@ -111,17 +116,6 @@ class MainActivity : AppCompatActivity() {
         }, ContextCompat.getMainExecutor(this))
     }
 
-//    private fun convertToMediaPipeImage(imageProxy: ImageProxy): MPImage {
-//        // Extract the YUV data from ImageProxy (depending on your use case)
-//        val yuvImage = YuvImage(imageProxy.planes[0].buffer, imageProxy.format, imageProxy.width, imageProxy.height, null)
-//
-//        // Convert the YUV data to JPEG (or another suitable format for MediaPipe)
-//        val byteArrayOutputStream = ByteArrayOutputStream()
-//        yuvImage.compressToJpeg(Rect(0, 0, imageProxy.width, imageProxy.height), 100, byteArrayOutputStream)
-//
-//        // Convert the byte data to MPImage (this might require a custom method depending on MediaPipe's input format)
-//        return MPImage.createFromByteArray(byteArrayOutputStream.toByteArray())
-//    }
 
     override fun onDestroy() {
         super.onDestroy()
