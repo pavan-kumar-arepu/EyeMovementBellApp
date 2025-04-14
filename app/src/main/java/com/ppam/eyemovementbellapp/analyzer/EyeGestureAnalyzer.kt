@@ -4,6 +4,7 @@ package com.ppam.eyemovementbellapp.analyzer
 import android.content.Context
 import android.graphics.ImageFormat
 import android.util.Log
+import android.widget.Toast
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
 import com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarkerResult
@@ -13,7 +14,7 @@ import com.ppam.eyemovementbellapp.mediapipe.MediapipeLandmarkerHelper
 import com.ppam.eyemovementbellapp.sound.SoundPlayer
 
 class EyeGestureAnalyzer(
-    private val context: Context
+    private val context: Context,
 ) {
 
     private val TAG = "EyeGestureAnalyzer"
