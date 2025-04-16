@@ -13,7 +13,7 @@ import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
- import androidx.camera.core.*
+import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
@@ -91,7 +91,10 @@ class MainActivity : AppCompatActivity() {
                 it.setSurfaceProvider(previewView.surfaceProvider)
             }
 
-            val cameraSelector = CameraSelector.DEFAULT_FRONT_CAMERA
+            val cameraSelector = CameraSelector.Builder()
+                .requireLensFacing(CameraSelector.LENS_FACING_FRONT) // Use this if you want to use the front camera.
+                //.requireLensFacing(CameraSelector.LENS_FACING_BACK) // Use this if you want to use the back camera.
+                .build()
 
             val imageAnalysis = ImageAnalysis.Builder()
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)

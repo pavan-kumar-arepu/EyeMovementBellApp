@@ -1,4 +1,5 @@
 package com.ppam.eyemovementbellapp.mediapipe
+
 import android.content.Context
 import android.graphics.*
 import android.util.Log
@@ -6,27 +7,33 @@ import androidx.camera.core.ImageProxy
 import com.google.mediapipe.framework.image.BitmapImageBuilder
 import com.google.mediapipe.framework.image.MPImage
 import com.google.mediapipe.tasks.core.BaseOptions
+import com.google.mediapipe.tasks.core.Delegate
 import com.google.mediapipe.tasks.vision.core.RunningMode
 import com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarker
 import com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarkerResult
 import com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarker.FaceLandmarkerOptions
 import java.io.ByteArrayOutputStream
+
 class MediapipeLandmarkerHelper(
     private val context: Context,
-    private val resultListener: (FaceLandmarkerResult) -> Unit // Add result listener here
+    private val resultListener: (FaceLandmarkerResult) -> Unit, // Add result listener here
 ) {
 
     private var landmarker: FaceLandmarker? = null
+
     init {
         try {
             val baseOptions = BaseOptions.builder()
                 .setModelAssetPath("face_landmarker.task")  // Make sure this is the correct path
+                .setDelegate(Delegate.GPU) // Consider GPU or CPU depending on your device capabilities
                 .build()
 
             val options = FaceLandmarkerOptions.builder()
                 .setBaseOptions(baseOptions)
                 .setRunningMode(RunningMode.LIVE_STREAM) // Ensure the mode is live stream
                 .setNumFaces(1) // Number of faces to track (can be adjusted)
+                .setMinFacePresenceConfidence(0.7f)
+                .setMinTrackingConfidence(0.6f)
                 .setResultListener { result, _ ->
                     resultListener(result)  // Pass result to listener
                 }
