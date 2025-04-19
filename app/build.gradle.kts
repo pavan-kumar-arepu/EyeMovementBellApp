@@ -80,7 +80,10 @@ dependencies {
     // MediaPipe dependencies will be added soon
 //    implementation("com.google.mediapipe:tasks-vision:0.10.1")// Or latest
 //    implementation("org.tensorflow:tensorflow-lite:2.13.0")   // Matches MediaPipe
-    implementation("com.google.mediapipe:tasks-vision:0.20230731")
+//    implementation("com.google.mediapipe:tasks-vision:0.20230731")dependencies {
+        implementation("com.google.mediapipe:tasks-vision:latest.release")
+
+
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.1")
 
 

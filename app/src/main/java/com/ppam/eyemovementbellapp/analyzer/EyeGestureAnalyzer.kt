@@ -2,58 +2,74 @@ package com.ppam.eyemovementbellapp.analyzer
 
 
 import android.content.Context
-import android.graphics.ImageFormat
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.widget.Toast
-import androidx.camera.core.ImageAnalysis
-import androidx.camera.core.ImageProxy
-import com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarkerResult
+import com.google.mediapipe.tasks.components.containers.NormalizedLandmark // Correct import (hopefully!)
 import com.ppam.eyemovementbellapp.gesture.EyeDirection
 import com.ppam.eyemovementbellapp.gesture.EyeDirectionDetector
-import com.ppam.eyemovementbellapp.mediapipe.MediapipeLandmarkerHelper
 import com.ppam.eyemovementbellapp.sound.SoundPlayer
-
 class EyeGestureAnalyzer(
     private val context: Context,
+    private val onBellSoundRequested: () -> Unit
 ) {
-
     private val TAG = "EyeGestureAnalyzer"
-    private var lastDirection: EyeDirection = EyeDirection.NONE
-    private var directionCount = 0
 
-    fun analyze(result: FaceLandmarkerResult) {
-        result.faceLandmarks().firstOrNull()?.let { landmarkList ->
-            val direction = EyeDirectionDetector.detectDirection(landmarkList)
+    private var rightDirectionCount = 0
+    private var lastDirection = EyeDirection.NONE
+    private var isBellPlaying = false
 
-            Log.d(TAG, "Detected direction: $direction")
+    private var frameCount = 0
+    private val ignoreInitialFrames = 15
 
-            if (direction != EyeDirection.NONE && direction == lastDirection) {
-                directionCount++
+    private var lastGestureTime = 0L
+    private val gestureCooldownMillis = 2000L
+
+    private var lastToastTime = 0L
+
+    fun analyze(landmarks: List<NormalizedLandmark>) {
+        frameCount++
+        if (frameCount <= ignoreInitialFrames) return
+
+        if (!EyeDirectionDetector.isEyeOpen(landmarks)) return
+
+        val direction = EyeDirectionDetector.detectDirection(landmarks)
+        Log.d(TAG, "Direction: $direction, RightCount: $rightDirectionCount, Last: $lastDirection")
+
+        if (direction == EyeDirection.RIGHT) {
+            if (lastDirection == EyeDirection.RIGHT) {
+                rightDirectionCount++
             } else {
-                directionCount = 1
+                rightDirectionCount = 1
             }
-
+            lastDirection = EyeDirection.RIGHT
+        } else {
+            rightDirectionCount = 0
             lastDirection = direction
+        }
 
-            if (directionCount == 2) {
-                when (direction) {
-                    EyeDirection.RIGHT -> {
-                        SoundPlayer.playBellSound(context)
-                        Log.d(TAG, "Right eye movement detected twice – playing sound")
-                    }
-                    EyeDirection.LEFT -> {
-                        Log.d(TAG, "Left eye movement detected twice – placeholder action")
-                    }
-                    EyeDirection.UP -> {
-                        Log.d(TAG, "Up eye movement detected twice – placeholder action")
-                    }
-                    EyeDirection.DOWN -> {
-                        Log.d(TAG, "Down eye movement detected twice – placeholder action")
-                    }
-                    EyeDirection.NONE -> { /* Do nothing */ }
-                }
-                directionCount = 0 // reset
+        if (rightDirectionCount == 2) {
+            val now = System.currentTimeMillis()
+            if (now - lastGestureTime > gestureCooldownMillis) {
+                isBellPlaying = !isBellPlaying
+                lastGestureTime = now
+                val message = if (isBellPlaying) "Bell started" else "Bell stopped"
+                onBellSoundRequested.invoke()
+                Log.d(TAG, "Double RIGHT detected → $message")
+                showToast("Double RIGHT detected → $message")
             }
+            rightDirectionCount = 0 // Reset after the gesture
+        }
+    }
+
+    private fun showToast(message: String) {
+        val now = System.currentTimeMillis()
+        if (now - lastToastTime > 2000) {
+            Handler(Looper.getMainLooper()).post {
+                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+            }
+            lastToastTime = now
         }
     }
 }

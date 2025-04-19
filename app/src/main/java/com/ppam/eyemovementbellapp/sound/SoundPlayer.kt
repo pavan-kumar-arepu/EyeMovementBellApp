@@ -8,18 +8,15 @@ import com.ppam.eyemovementbellapp.R
 object SoundPlayer {
     private var mediaPlayer: MediaPlayer? = null
 
-    fun playBellSound(context: Context) {
+    fun startLoopingBell(context: Context) {
         stop()
 
         mediaPlayer = MediaPlayer.create(context, R.raw.templebells).apply {
-            isLooping = false
-            setOnCompletionListener {
-                stop()
-            }
+            isLooping = true
             start()
         }
 
-        Log.d("SoundPlayer", "Bell sound played")
+        Log.d("SoundPlayer", "Bell sound started looping")
     }
 
     fun stop() {
@@ -30,5 +27,10 @@ object SoundPlayer {
             }
         }
         mediaPlayer = null
+        Log.d("SoundPlayer", "Bell sound stopped")
+    }
+
+    fun isPlaying(): Boolean {
+        return mediaPlayer?.isPlaying == true
     }
 }
