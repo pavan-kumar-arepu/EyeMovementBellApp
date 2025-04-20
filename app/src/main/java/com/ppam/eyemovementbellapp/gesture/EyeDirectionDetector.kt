@@ -6,7 +6,6 @@ import android.util.Log
 import kotlin.math.abs
 import kotlin.collections.getOrNull
 import com.google.mediapipe.tasks.components.containers.NormalizedLandmark
-
 object EyeDirectionDetector {
     private const val TAG = "EyeDirectionDetector"
 
@@ -14,15 +13,31 @@ object EyeDirectionDetector {
     private const val LEFT_EYE_OUTER_CORNER = 159
     private const val RIGHT_EYE_INNER_CORNER = 362
     private const val RIGHT_EYE_OUTER_CORNER = 386
+
     private const val NOSE_TIP = 4
 
     private val eyeXHistory = mutableListOf<Float>()
 
-    // Adjusted threshold values for detecting right/left movements
-    private val horizontalThresholdRight = 0.05f // Increased threshold for right movement
-    private val horizontalThresholdLeft = -0.05f // Increased threshold for left movement
+    // Adjusted thresholds for more stable detection
+    private const val horizontalThresholdRight = 0.07f
+    private const val horizontalThresholdLeft = -0.07f
+
+    // Warm-up logic to prevent early false positives
+    private var frameCount = 0
+    private const val FRAME_WARMUP_THRESHOLD = 15
+
+    // Debounce to prevent repeated detection too quickly
+    private var lastDirectionDetectedTime = 0L
+    private const val DEBOUNCE_INTERVAL = 1000L // 1 second
 
     fun detectDirection(landmarks: List<NormalizedLandmark>): EyeDirection {
+
+        frameCount++
+        if (frameCount < FRAME_WARMUP_THRESHOLD) {
+            Log.d(TAG, "Warming up: Skipping frame $frameCount")
+            return EyeDirection.NONE
+        }
+
         val leftEyeIn = landmarks.getOrNull(LEFT_EYE_INNER_CORNER)
         val leftEyeOut = landmarks.getOrNull(LEFT_EYE_OUTER_CORNER)
         val rightEyeIn = landmarks.getOrNull(RIGHT_EYE_INNER_CORNER)
@@ -37,9 +52,6 @@ object EyeDirectionDetector {
         val rightEyeX = (rightEyeIn.x() + rightEyeOut.x()) / 2f
         val eyeCenterX = (leftEyeX + rightEyeX) / 2f
 
-        // Log the X coordinates for debugging
-        Log.d(TAG, "Left Eye X: $leftEyeX, Right Eye X: $rightEyeX, Eye Center X: $eyeCenterX")
-
         // Smooth the X value to avoid jittery movements
         val smoothedX = smoothValue(eyeXHistory, eyeCenterX, 5)
 
@@ -47,23 +59,28 @@ object EyeDirectionDetector {
         val horizontalDiffFromCenter = smoothedX - 0.5f
 
         val direction = when {
-            horizontalDiffFromCenter > horizontalThresholdRight -> EyeDirection.RIGHT
-            horizontalDiffFromCenter < horizontalThresholdLeft -> EyeDirection.LEFT
+            horizontalDiffFromCenter > horizontalThresholdRight -> EyeDirection.LEFT
+            horizontalDiffFromCenter < horizontalThresholdLeft -> EyeDirection.RIGHT
             else -> EyeDirection.NONE
         }
 
-        Log.d(TAG, "Smoothed EyeCenterX=$smoothedX, DiffFromCenter=$horizontalDiffFromCenter, Direction=$direction")
-        return direction
+        // Apply debounce check before returning direction
+        val now = System.currentTimeMillis()
+        return if (direction != EyeDirection.NONE && now - lastDirectionDetectedTime > DEBOUNCE_INTERVAL) {
+            lastDirectionDetectedTime = now
+            Log.d(TAG, "Smoothed EyeCenterX=$smoothedX, DiffFromCenter=$horizontalDiffFromCenter, Direction=$direction")
+            direction
+        } else {
+            EyeDirection.NONE
+        }
     }
 
-    // Smoothing function to average the past X values
     private fun smoothValue(history: MutableList<Float>, newValue: Float, maxSize: Int): Float {
         history.add(newValue)
         if (history.size > maxSize) history.removeAt(0)
         return history.average().toFloat()
     }
 
-    // Method to check if both eyes are open
     fun isEyeOpen(landmarks: List<NormalizedLandmark>): Boolean {
         val leftTop = landmarks.getOrNull(159)?.y() ?: return false
         val leftBottom = landmarks.getOrNull(145)?.y() ?: return false
