@@ -1,14 +1,11 @@
 package com.ppam.eyemovementbellapp
-
 import android.os.Bundle
 import android.Manifest
 import android.content.pm.PackageManager
-import android.media.MediaPlayer
 import android.os.Build
-import android.util.Log
-import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.Toast
+import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AppCompatActivity
@@ -17,20 +14,25 @@ import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import com.ppam.eyemovementbellapp.analyzer.EyeGestureAnalyzer
-import com.ppam.eyemovementbellapp.mediapipe.MediapipeLandmarkerHelper
 import java.util.concurrent.Executors
-import com.google.mediapipe.tasks.components.containers.NormalizedLandmark
+import com.ppam.eyemovementbellapp.analyzer.EyeGestureFloatingLabel
+import com.ppam.eyemovementbellapp.gesture.EyeDirectionDetector
+import com.ppam.eyemovementbellapp.mediapipe.MediapipeLandmarkerHelper
+import androidx.compose.ui.Modifier
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var previewView: PreviewView
-    private lateinit var faceLandmarkerHelper: MediapipeLandmarkerHelper
     private lateinit var eyeGestureAnalyzer: EyeGestureAnalyzer
+    private lateinit var faceLandmarkerHelper: MediapipeLandmarkerHelper
     private lateinit var cameraExecutor: java.util.concurrent.ExecutorService
-    private var mediaPlayer: MediaPlayer? = null
-    private var isBellPlaying = false
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -39,44 +41,58 @@ class MainActivity : AppCompatActivity() {
         if (granted) {
             startCamera()
         } else {
-            Toast.makeText(this, "Camera permission required", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Camera permission is required!", Toast.LENGTH_SHORT).show()
         }
     }
 
     @RequiresApi(Build.VERSION_CODES.P)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        previewView = PreviewView(this).apply {
-            layoutParams = FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT
-            )
-        }
-        setContentView(previewView)
 
-        mediaPlayer = MediaPlayer.create(this, R.raw.templebells)
-
-        // Initialize analyzer with callback
-        eyeGestureAnalyzer = EyeGestureAnalyzer(this) { toggleBell() }
-
-        // MediaPipe FaceLandmarker setup
+        // Initialize your analyzers
+        eyeGestureAnalyzer = EyeGestureAnalyzer(this)
         faceLandmarkerHelper = MediapipeLandmarkerHelper(this) { result ->
-            result.let {
-                it.faceLandmarks().firstOrNull()?.let { landmarks: List<NormalizedLandmark> ->
+            if (result.faceLandmarks().isNullOrEmpty()) {
+                EyeDirectionDetector.resetCalibration()
+            } else {
+                val landmarks = result.faceLandmarks().firstOrNull()
+                if (landmarks != null) {
                     eyeGestureAnalyzer.analyze(landmarks)
                 }
             }
         }
-
         cameraExecutor = Executors.newSingleThreadExecutor()
+
+        // Setup UI
+        setContent {
+            MaterialTheme {
+                Box(modifier = Modifier.fillMaxSize()) {
+                    AndroidView(
+                        factory = { context ->
+                            previewView = PreviewView(context).apply {
+                                layoutParams = FrameLayout.LayoutParams(
+                                    FrameLayout.LayoutParams.MATCH_PARENT,
+                                    FrameLayout.LayoutParams.MATCH_PARENT
+                                )
+                            }
+                            previewView
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    )
+
+                    // Floating eye direction label
+                    EyeGestureFloatingLabel(eyeGestureAnalyzer)
+                }
+            }
+        }
+
         checkPermissionsAndStartCamera()
     }
 
     @RequiresApi(Build.VERSION_CODES.P)
     private fun checkPermissionsAndStartCamera() {
         val permissions = listOf(
-            Manifest.permission.CAMERA,
-            Manifest.permission.FOREGROUND_SERVICE
+            Manifest.permission.CAMERA
         )
         val notGranted = permissions.any {
             ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
@@ -94,13 +110,11 @@ class MainActivity : AppCompatActivity() {
         cameraProviderFuture.addListener({
             val cameraProvider = cameraProviderFuture.get()
 
-            val preview = Preview.Builder().build().also {
-                it.setSurfaceProvider(previewView.surfaceProvider)
-            }
-
-            val cameraSelector = CameraSelector.Builder()
-                .requireLensFacing(CameraSelector.LENS_FACING_FRONT)
+            val preview = Preview.Builder()
                 .build()
+                .also {
+                    it.setSurfaceProvider(previewView.surfaceProvider)
+                }
 
             val imageAnalysis = ImageAnalysis.Builder()
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
@@ -111,33 +125,25 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
 
+            val cameraSelector = CameraSelector.Builder()
+                .requireLensFacing(CameraSelector.LENS_FACING_FRONT)
+                .build()
+
             try {
                 cameraProvider.unbindAll()
                 cameraProvider.bindToLifecycle(
                     this, cameraSelector, preview, imageAnalysis
                 )
             } catch (e: Exception) {
-                Log.e("Camera", "Error binding camera", e)
+                e.printStackTrace()
             }
         }, ContextCompat.getMainExecutor(this))
-    }
-
-    private fun toggleBell() {
-        if (isBellPlaying) {
-            mediaPlayer?.pause()
-            mediaPlayer?.seekTo(0)
-            isBellPlaying = false
-        } else {
-            mediaPlayer?.start()
-            isBellPlaying = true
-        }
     }
 
     override fun onDestroy() {
         super.onDestroy()
         cameraExecutor.shutdown()
-        mediaPlayer?.release()
-        mediaPlayer = null
         faceLandmarkerHelper.close()
+        eyeGestureAnalyzer.shutdown()
     }
 }

@@ -2,98 +2,112 @@ package com.ppam.eyemovementbellapp.gesture
 
 
 import android.util.Log
-//import com.google.mediapipe.tasks.components.containers.NormalizedLandmark
-import kotlin.math.abs
 import kotlin.collections.getOrNull
 import com.google.mediapipe.tasks.components.containers.NormalizedLandmark
+
+
 object EyeDirectionDetector {
-    private const val TAG = "EyeDirectionDetector"
+    private const val TAG = "APK-EyeDirectionDetector"
 
-    private const val LEFT_EYE_INNER_CORNER = 133
-    private const val LEFT_EYE_OUTER_CORNER = 159
-    private const val RIGHT_EYE_INNER_CORNER = 362
-    private const val RIGHT_EYE_OUTER_CORNER = 386
+    // Correct MediaPipe Face Mesh landmark indices
+    private const val LEFT_IRIS_CENTER = 468
+    private const val RIGHT_IRIS_CENTER = 473
+    private const val LEFT_EYE_INNER_CORNER = 362
+    private const val LEFT_EYE_OUTER_CORNER = 263
+    private const val RIGHT_EYE_INNER_CORNER = 133
+    private const val RIGHT_EYE_OUTER_CORNER = 33
 
-    private const val NOSE_TIP = 4
+    private var smoothedX: Float? = null
+    private var smoothedY: Float? = null
+    private const val SMOOTHING_ALPHA = 0.5f
 
-    private val eyeXHistory = mutableListOf<Float>()
+    private var minX = Float.MAX_VALUE
+    private var maxX = Float.MIN_VALUE
+    private var minY = Float.MAX_VALUE
+    private var maxY = Float.MIN_VALUE
 
-    // Adjusted thresholds for more stable detection
-    private const val horizontalThresholdRight = 0.07f
-    private const val horizontalThresholdLeft = -0.07f
-
-    // Warm-up logic to prevent early false positives
     private var frameCount = 0
-    private const val FRAME_WARMUP_THRESHOLD = 15
+    private const val FRAME_WARMUP_THRESHOLD = 5
 
-    // Debounce to prevent repeated detection too quickly
-    private var lastDirectionDetectedTime = 0L
-    private const val DEBOUNCE_INTERVAL = 1000L // 1 second
+    fun resetCalibration() {
+        minX = Float.MAX_VALUE
+        maxX = Float.MIN_VALUE
+        minY = Float.MAX_VALUE
+        maxY = Float.MIN_VALUE
+        frameCount = 0
+        smoothedX = null
+        smoothedY = null
+        Log.d(TAG, "Calibration reset")
+    }
 
     fun detectDirection(landmarks: List<NormalizedLandmark>): EyeDirection {
-
         frameCount++
         if (frameCount < FRAME_WARMUP_THRESHOLD) {
-            Log.d(TAG, "Warming up: Skipping frame $frameCount")
+            Log.d(TAG, "Warm-up frame: $frameCount")
             return EyeDirection.NONE
         }
 
-        val leftEyeIn = landmarks.getOrNull(LEFT_EYE_INNER_CORNER)
-        val leftEyeOut = landmarks.getOrNull(LEFT_EYE_OUTER_CORNER)
-        val rightEyeIn = landmarks.getOrNull(RIGHT_EYE_INNER_CORNER)
-        val rightEyeOut = landmarks.getOrNull(RIGHT_EYE_OUTER_CORNER)
+        val leftIris = landmarks.getOrNull(LEFT_IRIS_CENTER)
+        val rightIris = landmarks.getOrNull(RIGHT_IRIS_CENTER)
+        val leftInner = landmarks.getOrNull(LEFT_EYE_INNER_CORNER)
+        val leftOuter = landmarks.getOrNull(LEFT_EYE_OUTER_CORNER)
+        val rightInner = landmarks.getOrNull(RIGHT_EYE_INNER_CORNER)
+        val rightOuter = landmarks.getOrNull(RIGHT_EYE_OUTER_CORNER)
 
-        if (leftEyeIn == null || leftEyeOut == null || rightEyeIn == null || rightEyeOut == null) {
-            Log.w(TAG, "Eye landmarks missing.")
+        if (leftIris == null || rightIris == null || leftInner == null || leftOuter == null || rightInner == null || rightOuter == null) {
+            Log.w(TAG, "Missing eye landmarks")
             return EyeDirection.NONE
         }
 
-        val leftEyeX = (leftEyeIn.x() + leftEyeOut.x()) / 2f
-        val rightEyeX = (rightEyeIn.x() + rightEyeOut.x()) / 2f
-        val eyeCenterX = (leftEyeX + rightEyeX) / 2f
+        // Calculate eye center
+        val centerX = (
+                leftIris.x() + rightIris.x() +
+                        leftInner.x() + leftOuter.x() +
+                        rightInner.x() + rightOuter.x()
+                ) / 6f
 
-        // Smooth the X value to avoid jittery movements
-        val smoothedX = smoothValue(eyeXHistory, eyeCenterX, 5)
+        val centerY = (
+                leftIris.y() + rightIris.y() +
+                        leftInner.y() + leftOuter.y() +
+                        rightInner.y() + rightOuter.y()
+                ) / 6f
 
-        // Calculate horizontal difference from the center (0.5)
-        val horizontalDiffFromCenter = smoothedX - 0.5f
+        // Update min/max ranges
+        minX = minOf(minX, centerX)
+        maxX = maxOf(maxX, centerX)
+        minY = minOf(minY, centerY)
+        maxY = maxOf(maxY, centerY)
+
+        // Smooth the movement
+        smoothedX = smoothedX?.let { SMOOTHING_ALPHA * centerX + (1 - SMOOTHING_ALPHA) * it } ?: centerX
+        smoothedY = smoothedY?.let { SMOOTHING_ALPHA * centerY + (1 - SMOOTHING_ALPHA) * it } ?: centerY
+
+        val smoothX = smoothedX!!
+        val smoothY = smoothedY!!
+
+        val rangeX = maxX - minX
+        val rangeY = maxY - minY
+
+        if (rangeX == 0f || rangeY == 0f) {
+            Log.d(TAG, "Range too small, returning CENTER")
+            return EyeDirection.CENTER
+        }
+
+        val leftThreshold = minX + 0.3f * rangeX
+        val rightThreshold = minX + 0.7f * rangeX
+        val upThreshold = minY + 0.3f * rangeY
+        val downThreshold = minY + 0.7f * rangeY
 
         val direction = when {
-            horizontalDiffFromCenter > horizontalThresholdRight -> EyeDirection.LEFT
-            horizontalDiffFromCenter < horizontalThresholdLeft -> EyeDirection.RIGHT
-            else -> EyeDirection.NONE
+            smoothX > rightThreshold -> EyeDirection.RIGHT
+            smoothX < leftThreshold -> EyeDirection.LEFT
+            smoothY < upThreshold -> EyeDirection.UP
+            smoothY > downThreshold -> EyeDirection.DOWN
+            else -> EyeDirection.CENTER
         }
 
-        // Apply debounce check before returning direction
-        val now = System.currentTimeMillis()
-        return if (direction != EyeDirection.NONE && now - lastDirectionDetectedTime > DEBOUNCE_INTERVAL) {
-            lastDirectionDetectedTime = now
-            Log.d(TAG, "Smoothed EyeCenterX=$smoothedX, DiffFromCenter=$horizontalDiffFromCenter, Direction=$direction")
-            direction
-        } else {
-            EyeDirection.NONE
-        }
+        Log.d(TAG, "Eye center (X=$smoothX, Y=$smoothY), thresholds: [$leftThreshold-$rightThreshold]x[$upThreshold-$downThreshold], direction=$direction")
+
+        return direction
     }
-
-    private fun smoothValue(history: MutableList<Float>, newValue: Float, maxSize: Int): Float {
-        history.add(newValue)
-        if (history.size > maxSize) history.removeAt(0)
-        return history.average().toFloat()
-    }
-
-    fun isEyeOpen(landmarks: List<NormalizedLandmark>): Boolean {
-        val leftTop = landmarks.getOrNull(159)?.y() ?: return false
-        val leftBottom = landmarks.getOrNull(145)?.y() ?: return false
-        val rightTop = landmarks.getOrNull(386)?.y() ?: return false
-        val rightBottom = landmarks.getOrNull(374)?.y() ?: return false
-
-        val leftEyeOpen = abs(leftTop - leftBottom) > 0.015f
-        val rightEyeOpen = abs(rightTop - rightBottom) > 0.015f
-
-        return leftEyeOpen && rightEyeOpen
-    }
-}
-
-enum class EyeDirection {
-    LEFT, RIGHT, NONE
 }
